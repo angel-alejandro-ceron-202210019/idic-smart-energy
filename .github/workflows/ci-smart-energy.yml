@@ -1,0 +1,43 @@
+name: CI Smart Energy IDIC
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout código
+        uses: actions/checkout@v4
+
+      - name: Configurar Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Validar sintaxis Python
+        run: |
+          python -m py_compile $(find . -maxdepth 3 -name "*.py" 2>/dev/null || true)
+
+      - name: Configurar Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login a Docker Hub
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Construir y publicar imagen Docker
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: |
+          if [ -f Dockerfile ]; then
+            docker build -t ${{ secrets.DOCKERHUB_USERNAME }}/idic-smart-energy:latest .
+            docker push ${{ secrets.DOCKERHUB_USERNAME }}/idic-smart-energy:latest
+          else
+            echo "Sin Dockerfile en raíz; validación de código completada."
+          fi

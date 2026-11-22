@@ -1,0 +1,34 @@
+# VM2 (srv-db): base de datos PostgreSQL en contenedor.
+# Uso:  docker compose -f docker-compose.db.yml up -d
+name: idic-db
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    container_name: idic-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${DB_NAME:-smart_energy}
+      POSTGRES_USER: ${DB_USER:-energia_user}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?Define DB_PASSWORD en el archivo .env}
+    ports:
+      # Solo en la red de datos de esta VM (no en todas las interfaces)
+      - "10.10.20.12:5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./db/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-energia_user} -d ${DB_NAME:-smart_energy}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - db-net
+
+networks:
+  db-net:
+    name: idic-db-net
+
+volumes:
+  pgdata:
+    name: idic-pgdata

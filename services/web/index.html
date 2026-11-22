@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>IDIC · Smart Energy</title>
+<style>
+  :root { --fondo:#f4f6f8; --tarjeta:#fff; --texto:#1c2733; --suave:#5f6f7f; --ok:#1a7f4b; --mal:#c0392b; --aviso:#b9770e; --linea:#dfe5ea; }
+  @media (prefers-color-scheme: dark) {
+    :root { --fondo:#12181f; --tarjeta:#1b242e; --texto:#e8edf2; --suave:#93a3b3; --ok:#46c28a; --mal:#ef6f61; --aviso:#e6a23c; --linea:#2c3946; }
+  }
+  * { box-sizing: border-box; }
+  body { margin:0; font-family: system-ui, Segoe UI, sans-serif; background:var(--fondo); color:var(--texto); }
+  header { padding:16px 24px; border-bottom:1px solid var(--linea); background:var(--tarjeta); }
+  header h1 { margin:0; font-size:20px; }
+  header p { margin:4px 0 0; color:var(--suave); font-size:13px; }
+  main { padding:20px 24px; display:grid; gap:20px; max-width:1100px; margin:auto; }
+  section { background:var(--tarjeta); border:1px solid var(--linea); border-radius:10px; padding:16px; overflow-x:auto; }
+  h2 { margin:0 0 12px; font-size:16px; }
+  table { width:100%; border-collapse:collapse; font-size:14px; }
+  th, td { text-align:left; padding:8px 10px; border-bottom:1px solid var(--linea); white-space:nowrap; }
+  th { color:var(--suave); font-weight:600; }
+  .chips { display:flex; flex-wrap:wrap; gap:8px; }
+  .chip { padding:6px 12px; border-radius:999px; font-size:13px; border:1px solid var(--linea); }
+  .up { color:var(--ok); } .down { color:var(--mal); } .warn { color:var(--aviso); }
+  small { color:var(--suave); }
+</style>
+</head>
+<body>
+<header>
+  <h1>IDIC · Smart Energy</h1>
+  <p>Monitoreo de consumo energético del campus · <span id="actualizado">cargando…</span></p>
+</header>
+<main>
+  <section>
+    <h2>Estado de los componentes</h2>
+    <div class="chips" id="componentes"></div>
+    <p><small id="eventos"></small></p>
+  </section>
+  <section>
+    <h2>Consumo por zona</h2>
+    <table>
+      <thead><tr><th>Zona</th><th>Potencia (W)</th><th>Promedio (W)</th><th>Pico (W)</th><th>Umbral (W)</th><th>Acumulado (kWh)</th><th>Estado</th></tr></thead>
+      <tbody id="zonas"></tbody>
+    </table>
+  </section>
+  <section>
+    <h2>Últimas alertas</h2>
+    <table>
+      <thead><tr><th>Hora</th><th>Zona</th><th>Tipo</th><th>Potencia (W)</th><th>Origen</th></tr></thead>
+      <tbody id="alertas"></tbody>
+    </table>
+  </section>
+</main>
+<script>
+const $ = (id) => document.getElementById(id);
+const num = (v, d = 0) => (v === null || v === undefined) ? "—" : Number(v).toFixed(d);
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const hora = (iso) => iso ? new Date(iso).toLocaleTimeString() : "—";
+
+async function pedir(ruta) {
+  const r = await fetch(ruta, { cache: "no-store" });
+  if (!r.ok) throw new Error(ruta + " → " + r.status);
+  return r.json();
+}
+
+async function actualizar() {
+  try {
+    const [resumen, alertas] = await Promise.all([pedir("/api/resumen"), pedir("/api/alertas?limite=10")]);
+    $("zonas").innerHTML = resumen.map(z => {
+      const p = z.ultima_potencia_w, alto = p !== null && p > z.umbral_w;
+      const reciente = z.actualizado && (Date.now() - new Date(z.actualizado)) < 15000;
+      const estado = !z.actualizado ? "sin datos" : alto ? "SOBRE UMBRAL" : reciente ? "normal" : "sin señal";
+      const clase = alto ? "down" : reciente ? "up" : "warn";
+      return `<tr><td>${esc(z.nombre)}</td><td>${num(p)}</td><td>${num(z.promedio_w)}</td><td>${num(z.pico_w)}</td>
+              <td>${num(z.umbral_w)}</td><td>${num(z.consumo_kwh, 3)}</td><td class="${clase}">${estado}</td></tr>`;
+    }).join("");
+    $("alertas").innerHTML = alertas.length ? alertas.map(a =>
+      `<tr><td>${hora(a.ts)}</td><td>${esc(a.zona)}</td><td>${esc(a.tipo)}</td><td>${num(a.potencia_w)}</td><td>${esc(a.origen)}</td></tr>`
+    ).join("") : `<tr><td colspan="5"><small>Sin alertas registradas</small></td></tr>`;
+    $("actualizado").textContent = "actualizado " + new Date().toLocaleTimeString();
+  } catch (e) {
+    $("actualizado").textContent = "sin conexión con la API";
+  }
+  try {
+    const m = await pedir("/monitor/estado");
+    $("componentes").innerHTML = Object.entries(m.componentes).map(([n, c]) =>
+      `<span class="chip ${c.up ? "up" : "down"}">${c.up ? "●" : "○"} ${esc(n)} ${c.latencia_ms ? "· " + c.latencia_ms + " ms" : ""}</span>`
+    ).join("");
+    $("eventos").textContent = m.eventos.slice(0, 3).map(e => `${hora(e.ts)} ${e.componente} ${e.evento}`).join("  |  ");
+  } catch (e) {
+    $("componentes").innerHTML = `<span class="chip down">monitor sin respuesta</span>`;
+  }
+}
+actualizar();
+setInterval(actualizar, 3000);
+</script>
+</body>
+</html>
